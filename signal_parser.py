@@ -6,6 +6,10 @@ logger = logging.getLogger(__name__)
 def parse_signal(message_text):
     """Parse trading signal from message text, handling Cash suffix in symbols"""
     try:
+        # Normalize spacing issues in the message
+        message_text = re.sub(r'(\d+\.?\d*)Tp', r'\1 Tp', message_text)  # Add space between numbers and Tp
+        message_text = re.sub(r'Tp(\d+)\s*@', r'Tp\1 @', message_text)   # Add space before @
+
         lines = message_text.split('\n')
         
         # Extract symbol - Updated pattern to handle cash indices and potential variations
@@ -68,13 +72,30 @@ def parse_signal(message_text):
             signals.append(signal)
             logger.info(f"✅ Added {direction} NOW order for {symbol}")
         
-        # Process limit orders
+        # Process limit orders with validation
         for direction, entry in limit_orders:
+            entry_price = float(entry)
+            
+            # Validate second price logic if we already have a signal
+            if signals:  # If we already have a signal (first price)
+                first_signal = signals[0]
+                first_direction = first_signal['direction'].replace(' LIMIT', '')
+                
+                # Validate second price makes sense for the same direction
+                if 'BUY' in direction and 'BUY' in first_direction:
+                    # For BUY, second price should typically be lower than first
+                    if first_signal.get('entry') and entry_price > first_signal.get('entry'):
+                        logger.warning(f"Second BUY price {entry_price} is higher than first price. This is unusual but allowed.")
+                elif 'SELL' in direction and 'SELL' in first_direction:
+                    # For SELL, second price should typically be higher than first  
+                    if first_signal.get('entry') and entry_price < first_signal.get('entry'):
+                        logger.warning(f"Second SELL price {entry_price} is lower than first price. This is unusual but allowed.")
+            
             signal = {
                 'symbol': symbol,
                 'direction': f"{direction.upper()} LIMIT",
                 'is_limit': True,
-                'entry': float(entry),
+                'entry': entry_price,
                 'sl': sl,
                 'tp': tp_levels,
                 'tp_count': len(tp_levels)

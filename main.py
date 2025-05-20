@@ -16,7 +16,11 @@ logging.basicConfig(
     filemode='w'  # Create new log file each time
 )
 logger = logging.getLogger(__name__)
-
+# Add these lines right after the logger initialization
+logger.info("="*50)
+logger.info("Starting enhanced order management system")
+logger.info("Order limits: WARNING at 170, CRITICAL at 190")
+logger.info("="*50)
 # Reduce verbosity of other loggers
 logging.getLogger('telethon').setLevel(logging.WARNING)
 logging.getLogger('mt5').setLevel(logging.WARNING)

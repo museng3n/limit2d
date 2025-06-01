@@ -59,6 +59,9 @@ async def main():
         if not mt5_connected:
             return
         
+        # Start the market monitor for queued signals
+        asyncio.create_task(start_market_monitor())
+        
         @client.on(events.NewMessage(chats=CHANNEL_IDS))
         async def handle_new_message(event):
             try:

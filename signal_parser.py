@@ -22,7 +22,7 @@ def parse_signal(message_text):
         #Check for variations and map if necessary
         indices_map = {
             'US30': 'US30Cash',
-            'US100': 'US100Cash',
+            'US100': 'US100Cash', 
             'DAX': 'GER40Cash',
             'OIL': 'OILCash',
             'NIKKEI': 'JP225Cash',
@@ -46,6 +46,7 @@ def parse_signal(message_text):
             logger.error(f"❌ No take profit levels found for {symbol}")
             return None
         tp_levels = [float(tp) for tp in tp_matches]
+        logger.info(f"🔍 Parsed TP levels: {tp_levels}")
         logger.info(f"📈 Take profit levels: {tp_levels}")
         
         # Find SL - Updated pattern to handle whole numbers
@@ -100,7 +101,9 @@ def parse_signal(message_text):
                 'tp': tp_levels,
                 'tp_count': len(tp_levels)
             }
+            logger.info(f"🔍 Signal created with TPs: {signal['tp']}")            
             signals.append(signal)
+
             logger.info(f"✅ Added {direction} LIMIT order at {entry} for {symbol}")
         
         return signals

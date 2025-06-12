@@ -4,7 +4,7 @@ import time
 import random
 from telethon import TelegramClient, events
 from config import API_ID, API_HASH, PHONE, CHANNEL_IDS
-from mt5_handler import connect_mt5, execute_trade
+from mt5_handler import connect_mt5, execute_trade, start_market_monitor
 from signal_parser import parse_signal
 import os
 
@@ -42,23 +42,23 @@ async def connect_mt5_with_retry(max_retries=6, retry_delay=5):
     return False
 
 async def main():
-    """Main function to run the bot"""
-    # Remove existing session if exists
     if os.path.exists(SESSION_FILE):
         os.remove(SESSION_FILE)
     
-    # Connect to Telegram
     client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
     
     try:
-        await client.start(phone=PHONE)
-        logger.info("Connected to Telegram")
+        await client.start(phone=PHONE)  # ← Connection happens HERE
+        logger.info("✅ Connected to Telegram successfully")  # ← Move logging HERE
+        logger.info(f"📡 Monitoring channels: {CHANNEL_IDS}")
+        logger.info("🚀 Starting message listener...")
         
         # Connect to MT5
         mt5_connected = await connect_mt5_with_retry()
         if not mt5_connected:
             return
         
+        # Rest of your code...
         # Start the market monitor for queued signals
         asyncio.create_task(start_market_monitor())
         

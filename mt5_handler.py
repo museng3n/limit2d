@@ -162,7 +162,11 @@ async def execute_trade_internal_direct(signal):
             logger.warning(f"Could not retrieve account info: {mt5.last_error()}")
 
         # Calculate volume per trade based on number of TP levels
-        base_volume = DEFAULT_VOLUME / signal['tp_count']
+                # Progressive TP volume distribution: TP1=0.04, others=0.02
+        if len(signal['tp']) == 1:  # Only TP1
+            base_volume = 0.04
+        else:
+            base_volume = 0.04  # Always start with TP1 volume
         volume_per_trade = calculate_valid_volume(symbol_info, base_volume, signal['symbol'])
 
         if volume_per_trade is None:
@@ -702,43 +706,59 @@ async def execute_trade(signal):
             return False
 
         # Place one trade for each TP level
-        for tp in signal['tp']:
+# Progressive TP: Place only TP1 initially, cache full TP data
+        if signal['tp']:
+            tp = signal['tp'][0]  # Only place TP1
             try:
+                # Log TP1 placement
+                self.logger.info(f"🔍 Creating TP1 order with TP: {tp}")
+                
                 request = prepare_order_request(signal, volume_per_trade, tp)
                 if request is None:
-                    continue
+                    self.logger.error(f"❌ Failed to prepare order request for {signal['symbol']} at TP1 {tp}")
+                    return False
+                    
+                # Cache full TP data for progressive system
+                group_id = signal.get('group_id', f"{signal['symbol']}_{int(time.time())}")
+                
+                # Store TP levels in a global cache for the EA to access
+                if not hasattr(self, 'tp_cache'):
+                    self.tp_cache = {}
+                self.tp_cache[group_id] = signal['tp']
+                
+                self.logger.info(f"🔍 Request TP value: {request.get('tp', 'MISSING')}")
+                order_type_name = "LIMIT" if signal['is_limit'] else "MARKET"
+                self.logger.info(f"Sending {order_type_name} order - Symbol: {signal['symbol']}, Direction: {signal['direction']}, Entry: {signal.get('entry', 'market')}, TP1: {tp}, SL: {signal['sl']}")
 
-                # Add a small delay before sending the order
-                time.sleep(0.5)  # Adjust delay as needed
+                time.sleep(0.5)
 
                 max_retries = 3
                 for attempt in range(max_retries):
                     result = mt5.order_send(request)
 
-                    if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                        break  # Exit the retry loop if the order is successful
+                    if result is None:
+                        error_code = mt5.last_error()
+                        self.logger.error(f"Attempt {attempt + 1}/{max_retries}: Order send returned None - Error: {error_code}")
+                        await asyncio.sleep(2)
+                        continue
+                        
+                    if result.retcode == mt5.TRADE_RETCODE_DONE:
+                        success = True
+                        self.logger.info(f"✅ TP1 order sent successfully for {signal['symbol']}, Ticket: {result.order}")
+                        break
                     else:
-                        logger.error(f"Order failed (attempt {attempt + 1}/{max_retries}): Retcode={result.retcode}, Comment={result.comment}")
-                        await asyncio.sleep(2)  # Wait before retrying
+                        self.logger.error(f"Attempt {attempt + 1}/{max_retries}: Order failed - Code: {result.retcode}, Comment: {result.comment}")
+                        await asyncio.sleep(2)
                 else:
-                    logger.error(f"Order failed after multiple retries for {signal['symbol']} at TP {tp}")
-                    continue
-                
-                if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
-                    trades_info.append({
-                        'ticket': result.order,
-                        'tp': tp,
-                        'sl': signal['sl'],
-                        'direction': signal['direction'],
-                        'entry': signal['entry'] #Added entry price
-                    })
-                    success = True
-                    logger.info(f"Order sent successfully for {signal['symbol']} at TP {tp}, Ticket: {result.order}")
-                else:
-                    logger.error(f"Order failed for {signal['symbol']} at TP {tp}: Retcode={result.retcode}, Comment={result.comment}")
+                    self.logger.error(f"❌ TP1 order failed after {max_retries} attempts for {signal['symbol']}")
+                    return False
+                    
             except Exception as e:
-                logger.error(f"Error executing trade at TP {tp}: {e}")
-                continue
+                self.logger.error(f"❌ Error executing TP1 trade: {e}", exc_info=True)
+                return False
+        else:
+            self.logger.error(f"❌ No TP levels found for {signal['symbol']}")
+            return False
         
         return success
         
@@ -874,8 +894,8 @@ def prepare_order_request(signal, volume, tp):
             logger.error(f"❌ Invalid price values detected - Price: {price}, SL: {sl}, TP: {tp}")
             return None
 
-        # Create a simple, safe comment with group ID
-        tp_index = signal['tp'].index(tp) + 1 if tp in signal['tp'] else 0
+        # Create comment with TP level tracking for progressive system
+        tp_index = 1  # Always start with TP1 for progressive system
         comment = f"G{group_id[:8]}_TP{tp_index}"
         
         # Ensure comment isn't too long
